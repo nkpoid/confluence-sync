@@ -1,9 +1,8 @@
-import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from confluence_sync.config import Config, SyncConfig
-from confluence_sync.state import PageState, SyncState
+from confluence_sync.state import DB_FILENAME, PageState, SyncState
 from confluence_sync.syncer import (
     _to_cql_date,
     build_cql,
@@ -162,6 +161,16 @@ class TestPull:
             "body": {"storage": {"value": "<p>Hello world</p>"}},
         }
 
+    def _seed_state(self, output_dir: str, last_sync: str, pages: dict[str, PageState]) -> None:
+        """テスト用に既存の sync-state DB を作成する。"""
+        output = Path(output_dir)
+        output.mkdir(parents=True, exist_ok=True)
+        state = SyncState(output / DB_FILENAME)
+        state.last_sync = last_sync
+        for page_id, ps in pages.items():
+            state.upsert_page(page_id, ps)
+        state.close()
+
     @patch("confluence_sync.syncer.ConfluenceAPI")
     def test_pull_new_page(self, mock_api_cls, tmp_path):
         output = str(tmp_path / "export")
@@ -181,10 +190,10 @@ class TestPull:
         assert len(md_files) == 1
         assert "12345" in md_files[0].name
 
-        state_path = tmp_path / "export" / ".sync-state.json"
-        assert state_path.exists()
-        state_data = json.loads(state_path.read_text())
-        assert "12345" in state_data["pages"]
+        # DB に保存されたか確認
+        state = SyncState(tmp_path / "export" / DB_FILENAME)
+        assert state.has_page("12345")
+        state.close()
 
     @patch("confluence_sync.syncer.ConfluenceAPI")
     def test_pull_nested_page(self, mock_api_cls, tmp_path):
@@ -202,28 +211,20 @@ class TestPull:
         child_path = tmp_path / "export" / "DEV" / "100-parent-page" / "200-child-page.md"
         assert child_path.exists()
 
-        state_data = json.loads((tmp_path / "export" / ".sync-state.json").read_text())
-        assert state_data["pages"]["200"]["filename"] == "100-parent-page/200-child-page.md"
+        state = SyncState(tmp_path / "export" / DB_FILENAME)
+        ps = state.get_page("200")
+        assert ps is not None
+        assert ps.filename == "100-parent-page/200-child-page.md"
+        state.close()
 
     @patch("confluence_sync.syncer.ConfluenceAPI")
     def test_pull_updates_existing(self, mock_api_cls, tmp_path):
         output = str(tmp_path / "export")
         config = self._make_config(output)
 
-        state = SyncState(
-            last_sync="2025-04-01T00:00:00Z",
-            pages={
-                "12345": PageState(
-                    version=1,
-                    title="Test Page",
-                    space="DEV",
-                    filename="12345-test-page.md",
-                )
-            },
-        )
-        state_path = Path(output) / ".sync-state.json"
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        state.save(state_path)
+        self._seed_state(output, "2025-04-01T00:00:00Z", {
+            "12345": PageState(version=1, title="Test Page", space="DEV", filename="12345-test-page.md"),
+        })
 
         mock_api = MagicMock()
         mock_api_cls.return_value = mock_api
@@ -247,19 +248,9 @@ class TestPull:
         old_file = dev_dir / "12345-old-title.md"
         old_file.write_text("old content")
 
-        state = SyncState(
-            last_sync="2025-04-01T00:00:00Z",
-            pages={
-                "12345": PageState(
-                    version=1,
-                    title="Old Title",
-                    space="DEV",
-                    filename="12345-old-title.md",
-                )
-            },
-        )
-        state_path = Path(output) / ".sync-state.json"
-        state.save(state_path)
+        self._seed_state(output, "2025-04-01T00:00:00Z", {
+            "12345": PageState(version=1, title="Old Title", space="DEV", filename="12345-old-title.md"),
+        })
 
         mock_api = MagicMock()
         mock_api_cls.return_value = mock_api

@@ -11,3 +11,4 @@ wheels/
 
 .confluence-sync.toml
 confluence-export/
+.sync-state.db*

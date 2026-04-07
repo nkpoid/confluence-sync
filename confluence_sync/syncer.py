@@ -12,7 +12,7 @@ from slugify import slugify
 from .api import ConfluenceAPI
 from .config import Config
 from .converter import build_page_markdown
-from .state import PageState, SyncState
+from .state import DB_FILENAME, PageState, SyncState
 
 console = Console(stderr=True)
 
@@ -137,8 +137,7 @@ def pull(config: Config, full: bool = False, detect_deletes: bool = False) -> Sy
     output_dir = Path(config.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    state_path = output_dir / ".sync-state.json"
-    state = SyncState.load(state_path)
+    state = SyncState(output_dir / DB_FILENAME)
 
     last_sync = None if full else (state.last_sync or None)
     cql = build_cql(config.spaces, last_sync, full)
@@ -178,13 +177,13 @@ def pull(config: Config, full: bool = False, detect_deletes: bool = False) -> Sy
                 relpath = build_page_relpath(ancestors, page_id, title)
 
                 # タイトル or 階層変更の検知 → 旧ファイル削除
-                old_state = state.pages.get(page_id)
+                old_state = state.get_page(page_id)
                 if old_state and old_state.filename != relpath:
                     old_path = output_dir / old_state.space / old_state.filename
                     if old_path.exists():
                         old_path.unlink()
 
-                is_new = page_id not in state.pages
+                is_new = not state.has_page(page_id)
 
                 md_content = build_page_markdown(
                     page_id=page_id,
@@ -209,13 +208,12 @@ def pull(config: Config, full: bool = False, detect_deletes: bool = False) -> Sy
                 filepath.write_text(md_content, encoding="utf-8")
 
                 # sync-state をページ単位で更新（中断耐性）
-                state.pages[page_id] = PageState(
+                state.upsert_page(page_id, PageState(
                     version=version,
                     title=title,
                     space=space_key,
                     filename=relpath,
-                )
-                state.save(state_path)
+                ))
 
                 if last_modified > max_last_modified:
                     max_last_modified = last_modified
@@ -272,20 +270,21 @@ def pull(config: Config, full: bool = False, detect_deletes: bool = False) -> Sy
     if detect_deletes:
         console.print("\nChecking for deleted pages...")
         trash_dir = output_dir / ".trash"
-        for page_id, ps in list(state.pages.items()):
+        for page_id, ps in state.all_pages().items():
             if not api.page_exists(page_id):
                 trash_dir.mkdir(parents=True, exist_ok=True)
                 src = output_dir / ps.space / ps.filename
                 if src.exists():
                     shutil.move(str(src), str(trash_dir / Path(ps.filename).name))
-                del state.pages[page_id]
+                state.delete_page(page_id)
                 result.deleted += 1
                 console.print(f"  [yellow]⊘[/yellow] {ps.space}/{ps.filename} (deleted)")
 
     # 最終state更新（Confluenceが返すタイムスタンプの最大値を使う）
     if max_last_modified:
         state.last_sync = max_last_modified
-    state.save(state_path)
+
+    state.close()
 
     synced = result.new + result.updated
     console.print(
@@ -301,11 +300,12 @@ def get_status(config: Config) -> None:
     """前回同期からの変更件数を表示する。"""
     api = ConfluenceAPI(config)
     output_dir = Path(config.output_dir)
-    state_path = output_dir / ".sync-state.json"
-    state = SyncState.load(state_path)
+
+    state = SyncState(output_dir / DB_FILENAME)
 
     if not state.last_sync:
         console.print("まだ同期が実行されていません。`confluence-sync pull` を実行してください。")
+        state.close()
         return
 
     cql = build_cql(config.spaces, state.last_sync, full=False)
@@ -313,5 +313,6 @@ def get_status(config: Config) -> None:
         pages = list(api.search_pages(cql, expand="version"))
 
     console.print(f"Last sync: {state.last_sync}")
-    console.print(f"Synced pages: {len(state.pages)}")
+    console.print(f"Synced pages: {state.page_count}")
     console.print(f"Changed since last sync: {len(pages)}")
+    state.close()
