@@ -1,0 +1,28 @@
+[project]
+name = "confluence-sync"
+version = "0.1.0"
+description = "Confluence Data Center pages to Markdown exporter with incremental sync"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "click==8.1.8",
+    "requests==2.32.3",
+    "markdownify==0.14.1",
+    "rich==13.9.4",
+    "tomli==2.2.1",
+    "tomli-w==1.1.0",
+    "python-slugify==8.0.4",
+]
+
+[project.scripts]
+confluence-sync = "confluence_sync.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest==8.3.4",
+    "responses==0.25.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
