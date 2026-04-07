@@ -32,8 +32,10 @@ class Config:
             attachment_dir=sync_data.get("attachment_dir", "_attachments"),
         )
 
+        base_url = os.environ.get("CONFLUENCE_BASE_URL", "") or data.get("base_url", "")
+
         return cls(
-            base_url=data.get("base_url", "").rstrip("/"),
+            base_url=base_url.rstrip("/"),
             output_dir=data.get("output_dir", "./confluence-export"),
             spaces=data.get("spaces", []),
             sync=sync_config,

@@ -61,7 +61,10 @@ class ConfluenceAPI:
         return results
 
     def search_pages(
-        self, cql: str, limit: int = 50
+        self,
+        cql: str,
+        limit: int = 50,
+        expand: str = "version,metadata.labels,space,body.storage",
     ) -> Iterator[dict[str, Any]]:
         start = 0
         while True:
@@ -72,7 +75,7 @@ class ConfluenceAPI:
                     "cql": cql,
                     "limit": limit,
                     "start": start,
-                    "expand": "version,metadata.labels,space,body.storage",
+                    "expand": expand,
                 },
             )
             data = resp.json()
@@ -82,13 +85,13 @@ class ConfluenceAPI:
                 break
             start += limit
 
-    def get_page(self, page_id: str) -> dict[str, Any]:
+    def get_ancestors(self, page_id: str) -> list[dict[str, Any]]:
         resp = self._request(
             "GET",
             f"/rest/api/content/{page_id}",
-            params={"expand": "version,metadata.labels,space,body.storage"},
+            params={"expand": "ancestors"},
         )
-        return resp.json()
+        return resp.json().get("ancestors", [])
 
     def page_exists(self, page_id: str) -> bool:
         try:

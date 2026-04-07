@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 import shutil
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 
 from rich.console import Console
@@ -15,7 +14,7 @@ from .config import Config
 from .converter import build_page_markdown
 from .state import PageState, SyncState
 
-console = Console()
+console = Console(stderr=True)
 
 
 @dataclass
@@ -32,7 +31,25 @@ def make_filename(page_id: str, title: str) -> str:
     return f"{page_id}-{slug}.md"
 
 
-def extract_page_info(page: dict) -> tuple[str, str, str, int, str, list[str], str]:
+def build_page_relpath(ancestors: list[dict], page_id: str, title: str) -> str:
+    """ancestors からスペースディレクトリ内の相対パスを構築する。
+
+    例: ancestors=[{id:"100",title:"Arch"},{id:"300",title:"DB"}], page_id="400", title="Schema"
+    → "100-arch/300-db/400-schema.md"
+    """
+    parts: list[str] = []
+    for anc in ancestors:
+        anc_slug = slugify(anc.get("title", ""), max_length=80)
+        parts.append(f"{anc['id']}-{anc_slug}")
+    filename = make_filename(page_id, title)
+    if parts:
+        return str(Path(*parts) / filename)
+    return filename
+
+
+def extract_page_info(
+    page: dict,
+) -> tuple[str, str, str, int, str, list[str], str]:
     """APIレスポンスからページ情報を抽出する。"""
     page_id = page["id"]
     title = page["title"]
@@ -48,18 +65,19 @@ def extract_page_info(page: dict) -> tuple[str, str, str, int, str, list[str], s
 
 
 def rewrite_attachment_paths(
-    md_content: str, page_id: str, attachment_dir: str
+    md_content: str, page_id: str, attachment_dir: str, depth: int = 0
 ) -> str:
     """MD内の添付ファイルパスを相対パスに書き換える。"""
+    prefix = "../" * depth if depth > 0 else ""
+    base = f"{prefix}{attachment_dir}/{page_id}/"
+
     pattern = r'(/rest/api/content/[^/]+/child/attachment[^\s\)\"]*)'
-    replacement = f"{attachment_dir}/{page_id}/"
 
     def _replace(match: re.Match) -> str:
         url = match.group(1)
-        # URLの末尾からファイル名を取得
         parts = url.rstrip("/").split("/")
         filename = parts[-1] if parts else "attachment"
-        return f"{replacement}{filename}"
+        return f"{base}{filename}"
 
     return re.sub(pattern, _replace, md_content)
 
@@ -85,18 +103,19 @@ def sync_attachments(
         if not download_path:
             continue
         dest = att_dir / title
-        if dest.exists():
-            # 簡易チェック: サイズが同じならスキップ
-            existing_size = dest.stat().st_size
-            # ヘッダーだけ取れないので常にDL（差分同期の対象ページなので更新あり前提）
-            pass
         try:
             data = api.download_attachment(download_path)
             dest.write_bytes(data)
             count += 1
         except Exception:
-            pass  # 添付ファイルエラーは静かにスキップ
+            pass
     return count
+
+
+def _to_cql_date(iso_date: str) -> str:
+    """ISO 8601 日付を CQL 互換フォーマット (yyyy-MM-dd HH:mm) に変換する。"""
+    # "2026-04-07T10:34:06Z" → "2026-04-07 10:34"
+    return iso_date.replace("T", " ").replace("Z", "")[:16]
 
 
 def build_cql(spaces: list[str], last_sync: str | None, full: bool) -> str:
@@ -106,7 +125,8 @@ def build_cql(spaces: list[str], last_sync: str | None, full: bool) -> str:
         space_list = ",".join(f'"{s}"' for s in spaces)
         conditions.append(f"space in ({space_list})")
     if last_sync and not full:
-        conditions.append(f'lastModified >= "{last_sync}"')
+        cql_date = _to_cql_date(last_sync)
+        conditions.append(f'lastModified >= "{cql_date}"')
     cql = " and ".join(conditions) + " order by lastModified desc"
     return cql
 
@@ -121,20 +141,19 @@ def pull(config: Config, full: bool = False, detect_deletes: bool = False) -> Sy
     state = SyncState.load(state_path)
 
     last_sync = None if full else (state.last_sync or None)
-
     cql = build_cql(config.spaces, last_sync, full)
 
-    if last_sync and not full:
-        console.print(f"Fetching changes since {last_sync}...")
-    else:
-        console.print("Fetching all pages...")
+    # ページ一覧取得（スピナー表示）
+    with console.status(
+        f"Fetching changes since {last_sync}..." if last_sync else "Fetching all pages..."
+    ):
+        pages = list(api.search_pages(cql))
 
-    # ページ一覧取得
-    pages = list(api.search_pages(cql))
     console.print(f"Found {len(pages)} {'updated ' if last_sync else ''}pages\n")
 
     result = SyncResult()
     total_attachments = 0
+    max_last_modified = state.last_sync or ""
 
     with Progress(
         SpinnerColumn(),
@@ -151,14 +170,16 @@ def pull(config: Config, full: bool = False, detect_deletes: bool = False) -> Sy
                     extract_page_info(page)
                 )
 
+                ancestors = api.get_ancestors(page_id)
+
                 space_dir = output_dir / space_key
                 space_dir.mkdir(parents=True, exist_ok=True)
 
-                filename = make_filename(page_id, title)
+                relpath = build_page_relpath(ancestors, page_id, title)
 
-                # タイトル変更の検知 → 旧ファイル削除
+                # タイトル or 階層変更の検知 → 旧ファイル削除
                 old_state = state.pages.get(page_id)
-                if old_state and old_state.filename != filename:
+                if old_state and old_state.filename != relpath:
                     old_path = output_dir / old_state.space / old_state.filename
                     if old_path.exists():
                         old_path.unlink()
@@ -176,13 +197,15 @@ def pull(config: Config, full: bool = False, detect_deletes: bool = False) -> Sy
                     body_html=body_html,
                 )
 
-                # 添付画像パス書き換え
+                # 添付画像パスを相対パスに書き換え（ツリーの深さを考慮）
                 if config.sync.include_attachments:
+                    depth = len(ancestors)
                     md_content = rewrite_attachment_paths(
-                        md_content, page_id, config.sync.attachment_dir
+                        md_content, page_id, config.sync.attachment_dir, depth
                     )
 
-                filepath = space_dir / filename
+                filepath = space_dir / relpath
+                filepath.parent.mkdir(parents=True, exist_ok=True)
                 filepath.write_text(md_content, encoding="utf-8")
 
                 # sync-state をページ単位で更新（中断耐性）
@@ -190,9 +213,12 @@ def pull(config: Config, full: bool = False, detect_deletes: bool = False) -> Sy
                     version=version,
                     title=title,
                     space=space_key,
-                    filename=filename,
+                    filename=relpath,
                 )
                 state.save(state_path)
+
+                if last_modified > max_last_modified:
+                    max_last_modified = last_modified
 
                 status = "new" if is_new else "updated"
                 if is_new:
@@ -201,7 +227,7 @@ def pull(config: Config, full: bool = False, detect_deletes: bool = False) -> Sy
                     result.updated += 1
 
                 progress.console.print(
-                    f"  [green]✓[/green] {space_key}/{filename} ({status})"
+                    f"  [green]✓[/green] {space_key}/{relpath} ({status})"
                 )
 
             except Exception as e:
@@ -248,17 +274,17 @@ def pull(config: Config, full: bool = False, detect_deletes: bool = False) -> Sy
         trash_dir = output_dir / ".trash"
         for page_id, ps in list(state.pages.items()):
             if not api.page_exists(page_id):
-                # .trash に移動
                 trash_dir.mkdir(parents=True, exist_ok=True)
                 src = output_dir / ps.space / ps.filename
                 if src.exists():
-                    shutil.move(str(src), str(trash_dir / ps.filename))
+                    shutil.move(str(src), str(trash_dir / Path(ps.filename).name))
                 del state.pages[page_id]
                 result.deleted += 1
                 console.print(f"  [yellow]⊘[/yellow] {ps.space}/{ps.filename} (deleted)")
 
-    # 最終state更新
-    state.last_sync = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # 最終state更新（Confluenceが返すタイムスタンプの最大値を使う）
+    if max_last_modified:
+        state.last_sync = max_last_modified
     state.save(state_path)
 
     synced = result.new + result.updated
@@ -283,7 +309,8 @@ def get_status(config: Config) -> None:
         return
 
     cql = build_cql(config.spaces, state.last_sync, full=False)
-    pages = list(api.search_pages(cql))
+    with console.status("Checking for changes..."):
+        pages = list(api.search_pages(cql, expand="version"))
 
     console.print(f"Last sync: {state.last_sync}")
     console.print(f"Synced pages: {len(state.pages)}")
