@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,6 +16,7 @@ class SyncConfig:
 @dataclass
 class Config:
     base_url: str = ""
+    pat: str = ""
     output_dir: str = "./confluence-export"
     spaces: list[str] = field(default_factory=list)
     sync: SyncConfig = field(default_factory=SyncConfig)
@@ -32,24 +32,30 @@ class Config:
             attachment_dir=sync_data.get("attachment_dir", "_attachments"),
         )
 
-        base_url = os.environ.get("CONFLUENCE_BASE_URL", "") or data.get("base_url", "")
-
-        return cls(
-            base_url=base_url.rstrip("/"),
+        config = cls(
+            base_url=data.get("base_url", "").rstrip("/"),
+            pat=data.get("pat", ""),
             output_dir=data.get("output_dir", "./confluence-export"),
             spaces=data.get("spaces", []),
             sync=sync_config,
         )
 
-    def get_pat(self) -> str:
-        pat = os.environ.get("CONFLUENCE_PAT", "")
-        if not pat:
+        if not config.base_url:
             print(
-                "エラー: 環境変数 CONFLUENCE_PAT が設定されていません。\n"
-                "Confluence Data Center で Personal Access Token を作成してください:\n"
-                "  プロフィール → Personal Access Tokens → Create token\n"
-                "作成後: export CONFLUENCE_PAT='your-token'",
+                f"エラー: base_url が設定されていません。\n"
+                f"{path} に base_url を追加してください。",
                 file=sys.stderr,
             )
             raise SystemExit(1)
-        return pat
+
+        if not config.pat:
+            print(
+                f"エラー: pat が設定されていません。\n"
+                f"{path} に pat を追加してください。\n"
+                "Personal Access Token の作成手順:\n"
+                "  プロフィール → Personal Access Tokens → Create token",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+
+        return config

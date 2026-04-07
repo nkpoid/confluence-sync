@@ -42,6 +42,8 @@ def init() -> None:
     base_url = click.prompt("Confluence Base URL", type=str)
     base_url = base_url.rstrip("/")
 
+    pat = click.prompt("Personal Access Token (PAT)", type=str, hide_input=True)
+
     output_dir = click.prompt("出力ディレクトリ", default="./confluence-export", type=str)
 
     spaces_input = click.prompt(
@@ -56,6 +58,7 @@ def init() -> None:
 
     data = {
         "base_url": base_url,
+        "pat": pat,
         "output_dir": output_dir,
         "spaces": spaces,
         "sync": {
@@ -66,8 +69,7 @@ def init() -> None:
 
     path.write_text(tomli_w.dumps(data), encoding="utf-8")
     console.print(f"\n[green]✓[/green] {CONFIG_FILE} を作成しました。")
-    console.print("環境変数 CONFLUENCE_PAT に Personal Access Token を設定してください:")
-    console.print("  export CONFLUENCE_PAT='your-token'")
+    console.print("このファイルは .gitignore に含まれています。")
 
 
 @main.command()

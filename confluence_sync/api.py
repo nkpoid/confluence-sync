@@ -15,7 +15,7 @@ class ConfluenceAPI:
     def __init__(self, config: Config) -> None:
         self.config = config
         self.session = requests.Session()
-        pat = config.get_pat()
+        pat = config.pat
         self.session.headers.update(
             {
                 "Authorization": f"Bearer {pat}",
