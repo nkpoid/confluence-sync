@@ -113,9 +113,16 @@ def sync_attachments(
 
 
 def _to_cql_date(iso_date: str) -> str:
-    """ISO 8601 日付を CQL 互換フォーマット (yyyy-MM-dd HH:mm) に変換する。"""
-    # "2026-04-07T10:34:06Z" → "2026-04-07 10:34"
-    return iso_date.replace("T", " ").replace("Z", "")[:16]
+    """ISO 8601 日付を CQL 互換フォーマットに変換し、1分加算する。
+
+    CQLは分単位精度のため、同一分のページが >=  で再取得されるのを防ぐ。
+    sync済みページは全てこの分以前に更新されているので、1分進めても取りこぼさない。
+    """
+    from datetime import datetime, timedelta
+
+    dt = datetime.fromisoformat(iso_date)
+    dt += timedelta(minutes=1)
+    return dt.strftime("%Y-%m-%d %H:%M")
 
 
 def build_cql(spaces: list[str], last_sync: str | None, full: bool) -> str:

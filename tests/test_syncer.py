@@ -15,11 +15,15 @@ from confluence_sync.syncer import (
 
 
 class TestToCqlDate:
-    def test_iso_to_cql(self):
-        assert _to_cql_date("2026-04-07T10:34:06Z") == "2026-04-07 10:34"
+    def test_iso_utc(self):
+        assert _to_cql_date("2026-04-07T10:34:06Z") == "2026-04-07 10:35"
 
-    def test_already_short(self):
-        assert _to_cql_date("2026-04-07T10:34") == "2026-04-07 10:34"
+    def test_iso_with_offset(self):
+        assert _to_cql_date("2026-04-07T21:25:36.250+09:00") == "2026-04-07 21:26"
+
+    def test_minute_boundary(self):
+        # 59分 + 1分 = 次の時間
+        assert _to_cql_date("2026-04-07T23:59:00Z") == "2026-04-08 00:00"
 
 
 class TestBuildCql:
@@ -34,7 +38,7 @@ class TestBuildCql:
 
     def test_with_last_sync(self):
         cql = build_cql([], "2025-04-01T10:00:00Z", full=False)
-        assert 'lastModified >= "2025-04-01 10:00"' in cql
+        assert 'lastModified >= "2025-04-01 10:01"' in cql
 
     def test_full_ignores_last_sync(self):
         cql = build_cql([], "2025-04-01T10:00:00Z", full=True)
@@ -44,7 +48,7 @@ class TestBuildCql:
         cql = build_cql(["DEV"], "2025-04-01T00:00:00Z", full=False)
         assert "type=page" in cql
         assert 'space in ("DEV")' in cql
-        assert 'lastModified >= "2025-04-01 00:00"' in cql
+        assert 'lastModified >= "2025-04-01 00:01"' in cql
         assert "order by lastModified desc" in cql
 
 
