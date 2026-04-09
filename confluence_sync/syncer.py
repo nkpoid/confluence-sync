@@ -177,6 +177,9 @@ def pull(config: Config, full: bool = False, detect_deletes: bool = False) -> Sy
                 )
 
                 ancestors = api.get_ancestors(page_id)
+                title_path = " / ".join(
+                    [a["title"] for a in ancestors] + [title]
+                )
 
                 space_dir = output_dir / space_key
                 space_dir.mkdir(parents=True, exist_ok=True)
@@ -220,6 +223,7 @@ def pull(config: Config, full: bool = False, detect_deletes: bool = False) -> Sy
                     title=title,
                     space=space_key,
                     filename=relpath,
+                    title_path=title_path,
                 ))
 
                 if last_modified > max_last_modified:
@@ -231,8 +235,9 @@ def pull(config: Config, full: bool = False, detect_deletes: bool = False) -> Sy
                 else:
                     result.updated += 1
 
+                page_url = f"{config.base_url}/spaces/{space_key}/pages/{page_id}"
                 progress.console.print(
-                    f"  [green]✓[/green] {space_key}/{relpath} ({status})"
+                    f"  [green]✓[/green] [link={page_url}]{space_key} / {title_path}[/link] ({status})"
                 )
 
             except Exception as e:
@@ -285,7 +290,9 @@ def pull(config: Config, full: bool = False, detect_deletes: bool = False) -> Sy
                     shutil.move(str(src), str(trash_dir / Path(ps.filename).name))
                 state.delete_page(page_id)
                 result.deleted += 1
-                console.print(f"  [yellow]⊘[/yellow] {ps.space}/{ps.filename} (deleted)")
+                display = ps.title_path or ps.title
+                page_url = f"{config.base_url}/spaces/{ps.space}/pages/{page_id}"
+                console.print(f"  [yellow]⊘[/yellow] [link={page_url}]{ps.space} / {display}[/link] (deleted)")
 
     # 最終state更新（Confluenceが返すタイムスタンプの最大値を使う）
     if max_last_modified:
