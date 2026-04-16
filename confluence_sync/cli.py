@@ -98,14 +98,27 @@ def status() -> None:
     get_status(config)
 
 
+def _extract_page_id_from_url(url: str) -> str | None:
+    """Confluence URLからページIDを抽出する。"""
+    import re
+
+    m = re.search(r"/pages/(\d+)", url)
+    return m.group(1) if m else None
+
+
 @main.command()
 @click.argument("query")
 def resolve(query: str) -> None:
-    """IDまたはタイトルからローカルパスとリモートURLを解決する。
+    """IDまたはタイトルまたはConfluence URLからローカルパスとリモートURLを解決する。
 
-    QUERY にはページID(例: 12345)またはページタイトル(部分一致)を指定する。
+    QUERY にはページID、ページタイトル(部分一致)、またはConfluence URLを指定する。
     """
     from .state import DB_FILENAME, SyncState
+
+    # URLからID抽出を試みる
+    page_id_from_url = _extract_page_id_from_url(query)
+    if page_id_from_url is not None:
+        query = page_id_from_url
 
     config = load_config()
     output_dir = Path(config.output_dir)
