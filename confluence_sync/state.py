@@ -97,6 +97,39 @@ class SyncState:
         self._conn.execute("DELETE FROM pages WHERE page_id = ?", (page_id,))
         self._conn.commit()
 
+    def find_pages(self, query: str) -> list[tuple[str, PageState]]:
+        """page_id またはタイトル(部分一致)でページを検索する。
+
+        完全一致するpage_idがあればそれのみ返す。
+        なければタイトルをLIKE検索する。
+        """
+        # まず page_id 完全一致
+        row = self._conn.execute(
+            "SELECT page_id, version, title, space, filename, title_path "
+            "FROM pages WHERE page_id = ?",
+            (query,),
+        ).fetchone()
+        if row is not None:
+            ps = PageState(
+                version=row[1], title=row[2], space=row[3],
+                filename=row[4], title_path=row[5],
+            )
+            return [(row[0], ps)]
+
+        # タイトル部分一致
+        rows = self._conn.execute(
+            "SELECT page_id, version, title, space, filename, title_path "
+            "FROM pages WHERE title LIKE ?",
+            (f"%{query}%",),
+        ).fetchall()
+        return [
+            (
+                r[0],
+                PageState(version=r[1], title=r[2], space=r[3], filename=r[4], title_path=r[5]),
+            )
+            for r in rows
+        ]
+
     def all_pages(self) -> dict[str, PageState]:
         rows = self._conn.execute(
             "SELECT page_id, version, title, space, filename, title_path FROM pages"

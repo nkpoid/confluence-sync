@@ -98,6 +98,57 @@ def status() -> None:
     get_status(config)
 
 
+@main.command()
+@click.argument("query")
+def resolve(query: str) -> None:
+    """IDまたはタイトルからローカルパスとリモートURLを解決する。
+
+    QUERY にはページID(例: 12345)またはページタイトル(部分一致)を指定する。
+    """
+    from .state import DB_FILENAME, SyncState
+
+    config = load_config()
+    output_dir = Path(config.output_dir)
+    db_path = output_dir / DB_FILENAME
+
+    if not db_path.exists():
+        console.print(
+            "[red]同期データが見つかりません。[/red]\n"
+            "`confluence-sync pull` を実行してください。"
+        )
+        raise SystemExit(1)
+
+    state = SyncState(db_path)
+    results = state.find_pages(query)
+    state.close()
+
+    if not results:
+        console.print(f"[yellow]該当するページが見つかりません: {query}[/yellow]")
+        raise SystemExit(1)
+
+    def _print_results() -> None:
+        if len(results) > 1:
+            console.print(f"[bold]{len(results)} 件見つかりました[/bold]\n")
+
+        for i, (page_id, ps) in enumerate(results):
+            local_path = Path(output_dir / ps.space / ps.filename).resolve()
+            local_url = local_path.as_uri()
+            remote_url = f"{config.base_url}/spaces/{ps.space}/pages/{page_id}"
+            console.print(f"[dim]ID:[/dim]     {page_id}")
+            console.print(f"[dim]Title:[/dim]  [cyan]{ps.title}[/cyan]")
+            console.print(f"[dim]Local:[/dim]  [link={local_url}]{local_path}[/link]")
+            console.print(f"[dim]Remote:[/dim] [link={remote_url}]{remote_url}[/link]")
+            if i < len(results) - 1:
+                console.print("─" * 40)
+
+    # 結果が多い場合はpagerを使用（less -RFX: 1画面に収まればそのまま表示）
+    if len(results) > 1:
+        with console.pager(styles=True, links=True):
+            _print_results()
+    else:
+        _print_results()
+
+
 @main.command("list-spaces")
 def list_spaces() -> None:
     """アクセス可能なスペース一覧を表示する。"""
