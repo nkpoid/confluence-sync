@@ -51,6 +51,11 @@ def init() -> None:
     )
     spaces = [s.strip() for s in spaces_input.split(",") if s.strip()] if spaces_input else []
 
+    root_pages_input = click.prompt(
+        "ルートページID (カンマ区切り、空欄で制限なし)", default="", type=str
+    )
+    root_page_ids = [s.strip() for s in root_pages_input.split(",") if s.strip()] if root_pages_input else []
+
     include_attachments = click.confirm("添付ファイルもダウンロードしますか？", default=True)
     attachment_dir = "_attachments"
     if include_attachments:
@@ -61,6 +66,7 @@ def init() -> None:
         "pat": pat,
         "output_dir": output_dir,
         "spaces": spaces,
+        "root_page_ids": root_page_ids,
         "sync": {
             "include_attachments": include_attachments,
             "attachment_dir": attachment_dir,

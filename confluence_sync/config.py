@@ -19,6 +19,7 @@ class Config:
     pat: str = ""
     output_dir: str = "./confluence-export"
     spaces: list[str] = field(default_factory=list)
+    root_page_ids: list[str] = field(default_factory=list)
     sync: SyncConfig = field(default_factory=SyncConfig)
 
     @classmethod
@@ -37,6 +38,7 @@ class Config:
             pat=data.get("pat", ""),
             output_dir=data.get("output_dir", "./confluence-export"),
             spaces=data.get("spaces", []),
+            root_page_ids=[str(x) for x in data.get("root_page_ids", [])],
             sync=sync_config,
         )
 

@@ -125,12 +125,23 @@ def _to_cql_date(iso_date: str) -> str:
     return dt.strftime("%Y-%m-%d %H:%M")
 
 
-def build_cql(spaces: list[str], last_sync: str | None, full: bool) -> str:
+def build_cql(
+    spaces: list[str],
+    last_sync: str | None,
+    full: bool,
+    root_page_ids: list[str] | None = None,
+) -> str:
     """同期用CQLクエリを構築する。"""
     conditions = ["type=page"]
     if spaces:
         space_list = ",".join(f'"{s}"' for s in spaces)
         conditions.append(f"space in ({space_list})")
+    if root_page_ids:
+        ancestor_conds = [f'ancestor = "{pid}"' for pid in root_page_ids]
+        if len(ancestor_conds) == 1:
+            conditions.append(ancestor_conds[0])
+        else:
+            conditions.append(f"({' or '.join(ancestor_conds)})")
     if last_sync and not full:
         cql_date = _to_cql_date(last_sync)
         conditions.append(f'lastModified >= "{cql_date}"')
@@ -147,7 +158,7 @@ def pull(config: Config, full: bool = False, detect_deletes: bool = False) -> Sy
     state = SyncState(output_dir / DB_FILENAME)
 
     last_sync = None if full else (state.last_sync or None)
-    cql = build_cql(config.spaces, last_sync, full)
+    cql = build_cql(config.spaces, last_sync, full, config.root_page_ids)
 
     # ページ一覧取得（スピナー表示）
     with console.status(
@@ -322,7 +333,7 @@ def get_status(config: Config) -> None:
         state.close()
         return
 
-    cql = build_cql(config.spaces, state.last_sync, full=False)
+    cql = build_cql(config.spaces, state.last_sync, full=False, root_page_ids=config.root_page_ids)
     with console.status("Checking for changes..."):
         pages = list(api.search_pages(cql, expand="version"))
 

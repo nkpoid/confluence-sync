@@ -51,6 +51,21 @@ class TestBuildCql:
         assert 'lastModified >= "2025-04-01 00:01"' in cql
         assert "order by lastModified desc" in cql
 
+    def test_single_root_page_id(self):
+        cql = build_cql([], None, full=False, root_page_ids=["12345"])
+        assert 'ancestor = "12345"' in cql
+        assert "type=page" in cql
+
+    def test_multiple_root_page_ids(self):
+        cql = build_cql([], None, full=False, root_page_ids=["111", "222"])
+        assert '(ancestor = "111" or ancestor = "222")' in cql
+
+    def test_root_page_ids_with_spaces_and_last_sync(self):
+        cql = build_cql(["DEV"], "2025-04-01T00:00:00Z", full=False, root_page_ids=["999"])
+        assert 'space in ("DEV")' in cql
+        assert 'ancestor = "999"' in cql
+        assert 'lastModified >= "2025-04-01 00:01"' in cql
+
 
 class TestMakeFilename:
     def test_basic(self):
