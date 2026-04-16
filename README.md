@@ -72,7 +72,7 @@ confluence-export/
 │   └── 10001-architecture.md
 ├── OPS/
 │   └── ...
-└── .sync-state.json
+└── .sync-state.db
 ```
 
 各 Markdown ファイルには YAML frontmatter が付与されます。
