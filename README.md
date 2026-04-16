@@ -28,6 +28,7 @@ pat = "your-personal-access-token"
 
 output_dir = "./confluence-export"
 spaces = ["DEV", "OPS"]  # 空配列なら全スペース対象
+root_page_ids = ["12345678"]  # 指定ページ配下のみ同期（省略 or 空配列で制限なし）
 
 [sync]
 include_attachments = true
