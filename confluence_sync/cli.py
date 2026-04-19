@@ -99,10 +99,17 @@ def status() -> None:
 
 
 def _extract_page_id_from_url(url: str) -> str | None:
-    """Confluence URLからページIDを抽出する。"""
+    """Confluence URLからページIDを抽出する。
+
+    新形式 (/spaces/<key>/pages/<id>) と旧形式 (viewpage.action?pageId=<id>) の
+    両方に対応する。
+    """
     import re
 
     m = re.search(r"/pages/(\d+)", url)
+    if m:
+        return m.group(1)
+    m = re.search(r"[?&]pageId=(\d+)", url)
     return m.group(1) if m else None
 
 
